@@ -95,7 +95,7 @@ When no rule accepts, an error consumes the viable prefix up to the first imposs
 
 Budget exhaustion produces `LexError::BudgetExceeded` and consumes the inspected prefix, or one complete scalar if needed to guarantee progress. A single multibyte scalar can therefore exceed a tiny byte limit while recovering. `max_token_bytes` bounds lookahead as well as the accepted match. Compile options reject invalid values; nesting has an absolute ceiling of 256 and repeat/state counts a ceiling of 1,000,000.
 
-Simulation costs approximately the inspected characters times the active NFA states/class terms, plus per-token state bookkeeping. Token fallback can revisit input; there is no whole-input linear-time guarantee. `position()` scans from the start of the source and should be replaced by extras-based line tracking in hot paths. Callback work, caller-owned source strings, payload allocation and text explicitly consumed by `bump` are outside the engine budgets.
+Simulation costs approximately the inspected characters times the active NFA states/class terms, plus per-token state bookkeeping. Token fallback can revisit input; there is no whole-input linear-time guarantee. `position()` lazily caches line/scalar-column progress: repeated calls at one token are constant time, and calls over a forward scan inspect each preceding scalar at most once. A lexer starting at a nonzero offset scans that prefix on its first position query. Skips, errors and callback bumps are included; forks copy the cached position into an independent cell and morphed lexers share it. Callback work, caller-owned source strings, payload allocation and text explicitly consumed by `bump` are outside the engine budgets.
 
 ## Validation
 

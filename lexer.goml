@@ -78,6 +78,9 @@ impl[T, X, E] Lexer[T, X, E] {
                 source: self.source(),
                 cursor: Ref::new(self.span()),
                 extras: Ref::new(self.extras()),
+                position_offset: Ref::new(self.context.position_offset.get()),
+                position_line: Ref::new(self.context.position_line.get()),
+                position_column: Ref::new(self.context.position_column.get()),
             },
         }
     }

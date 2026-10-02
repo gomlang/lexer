@@ -138,6 +138,9 @@ pub struct Context[X] {
     source: string,
     cursor: Ref[Span],
     extras: Ref[X],
+    position_offset: Ref[isize],
+    position_line: Ref[isize],
+    position_column: Ref[isize],
 }
 
 fn next_boundary(source: string, offset: isize) -> isize {
@@ -188,9 +191,9 @@ impl[X] Context[X] {
     }
 
     pub fn position(self: Context[X]) -> Position {
-        let mut line = 1;
-        let mut column = 1;
-        let mut offset = 0;
+        let mut offset = self.position_offset.get();
+        let mut line = self.position_line.get();
+        let mut column = self.position_column.get();
         while offset < self.span().start {
             if self.source.get(offset) == '\n' {
                 line += 1;
@@ -200,6 +203,10 @@ impl[X] Context[X] {
             }
             offset = next_boundary(self.source, offset);
         }
-        Position { line, column }
+        let position = Position { line, column };
+        self.position_offset.set(offset);
+        self.position_line.set(line);
+        self.position_column.set(column);
+        position
     }
 }

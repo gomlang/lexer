@@ -157,6 +157,9 @@ impl[T, X, E] Grammar[T, X, E] {
                 source,
                 cursor: Ref::new(Span { start: 0, end: 0 }),
                 extras: Ref::new(extras),
+                position_offset: Ref::new(0),
+                position_line: Ref::new(1),
+                position_column: Ref::new(1),
             },
         }
     }
@@ -175,6 +178,9 @@ impl[T, X, E] Grammar[T, X, E] {
                     source,
                     cursor: Ref::new(Span { start: offset, end: offset }),
                     extras: Ref::new(extras),
+                    position_offset: Ref::new(0),
+                    position_line: Ref::new(1),
+                    position_column: Ref::new(1),
                 },
             },
         )
