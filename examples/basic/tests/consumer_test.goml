@@ -47,3 +47,18 @@ fn downstream_position_queries_are_stable_across_unicode_tokens() -> () {
     testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 1 });
     testing::assert_eq(fork.position(), logos::Position { line: 1, column: 1 });
 }
+
+#[test]
+fn downstream_embedded_range_keeps_source_coordinates() -> () {
+    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
+        [logos::Rule::regex("[a-z]+", |ctx| logos::Action::Emit(ctx.slice()))],
+    );
+    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let lexer = testing::expect_ok(grammar.lexer_range("head\ncodeTAIL", 5, 9, ()), "range");
+    testing::assert_eq(
+        testing::expect_ok(testing::expect_some(lexer.next(), "token"), "token"),
+        "code",
+    );
+    testing::assert_eq(lexer.span(), logos::Span { start: 5, end: 9 });
+    testing::assert_none(lexer.next());
+}
