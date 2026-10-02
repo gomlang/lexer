@@ -42,11 +42,11 @@ impl[T, X, E] Lexer[T, X, E] {
         let work = Ref::new(0);
         loop {
             let start = self.span().end;
-            if start == self.source().byte_len() {
+            if start == self.context.end_offset {
                 self.context.cursor.set(Span { start, end: start });
                 return Option::None
             }
-            let scanned = scan(self.grammar, self.source(), start, work);
+            let scanned = scan(self.grammar, self.source(), start, self.context.end_offset, work);
             let end = match scanned {
                 Match(end, _) | Ambiguous(end, _) | Unexpected(end) | Budget(end) => end,
             };
@@ -76,6 +76,7 @@ impl[T, X, E] Lexer[T, X, E] {
             grammar: self.grammar,
             context: Context {
                 source: self.source(),
+                end_offset: self.context.end_offset,
                 cursor: Ref::new(self.span()),
                 extras: Ref::new(self.extras()),
                 position_offset: Ref::new(self.context.position_offset.get()),

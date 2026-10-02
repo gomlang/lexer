@@ -70,7 +70,14 @@ Unsupported constructs produce `CompileError { rule, offset, message }`: lookaro
 
 ## Lexer, callbacks, extras, and modes
 
-`grammar.lexer(source, extras)` creates `Lexer[T, X, E]`. `lexer_at(source, offset, extras)` validates a starting UTF-8 boundary. `next()` returns `Option[Result[T, LexError[E]]]`; the lexer also implements `Iterator`. `spanned()` returns an iterator of `(result, Span)` pairs. End of input is fused and sets the span to the empty range at EOF.
+`grammar.lexer(source, extras)` creates `Lexer[T, X, E]`. `lexer_at(source, offset, extras)` validates a starting UTF-8 boundary.
+`lexer_range(source, start, end, extras)` confines token matching, lookahead,
+remainder and callback/lexer `bump` to a checked half-open UTF-8 byte range.
+The range may be empty. Spans and one-based line/scalar-column positions remain
+absolute in the complete source; `source()` still exposes that complete string
+for contextual inspection. EOF is the empty span at `end`, even with source text
+following it. Forks and morphed lexers retain the same range boundary. This allows
+embedded fragments to be tokenized without slicing or renumbering their source. `next()` returns `Option[Result[T, LexError[E]]]`; the lexer also implements `Iterator`. `spanned()` returns an iterator of `(result, Span)` pairs. End of input is fused and sets the span to the empty range at EOF.
 
 Both the lexer and callback `Context[X]` expose:
 

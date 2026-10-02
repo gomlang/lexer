@@ -155,6 +155,7 @@ impl[T, X, E] Grammar[T, X, E] {
             grammar: self,
             context: Context {
                 source,
+                end_offset: source.byte_len(),
                 cursor: Ref::new(Span { start: 0, end: 0 }),
                 extras: Ref::new(extras),
                 position_offset: Ref::new(0),
@@ -168,15 +169,24 @@ impl[T, X, E] Grammar[T, X, E] {
         Lexer[T, X, E],
         string,
     ] {
-        if offset < 0 || offset > source.byte_len() || !source.is_char_boundary(offset) {
-            return Result::Err("lexer offset must be a UTF-8 boundary inside the source")
+        self.lexer_range(source, offset, source.byte_len(), extras)
+    }
+
+    pub fn lexer_range(self: Grammar[T, X, E], source: string, start: isize, end: isize, extras: X) -> Result[
+        Lexer[T, X, E],
+        string,
+    ] {
+        if start < 0 || end < start || end > source.byte_len() || !source.is_char_boundary(start)
+            || !source.is_char_boundary(end) {
+            return Result::Err("lexer range must use ordered UTF-8 boundaries inside the source")
         }
         Result::Ok(
             Lexer {
                 grammar: self,
                 context: Context {
                     source,
-                    cursor: Ref::new(Span { start: offset, end: offset }),
+                    end_offset: end,
+                    cursor: Ref::new(Span { start, end: start }),
                     extras: Ref::new(extras),
                     position_offset: Ref::new(0),
                     position_line: Ref::new(1),
@@ -229,7 +239,13 @@ enum Scan {
     Budget(isize),
 }
 
-fn scan[T, X, E](grammar: Grammar[T, X, E], source: string, start: isize, work: Ref[isize]) -> Scan {
+fn scan[T, X, E](
+    grammar: Grammar[T, X, E],
+    source: string,
+    start: isize,
+    end_offset: isize,
+    work: Ref[isize],
+) -> Scan {
     if !spend(work, grammar.states.len(), grammar.options.max_work) {
         return Scan::Budget(next_boundary(source, start))
     }
@@ -255,7 +271,7 @@ fn scan[T, X, E](grammar: Grammar[T, X, E], source: string, start: isize, work: 
     let mut offset = start;
     let mut best_end = start;
     let mut best: Vec[isize] = Vec::new();
-    while offset < source.byte_len() {
+    while offset < end_offset {
         let end = next_boundary(source, offset);
         if end - start > grammar.options.max_token_bytes {
             return Scan::Budget(

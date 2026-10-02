@@ -136,6 +136,7 @@ impl[T, X, E] Rule[T, X, E] {
 
 pub struct Context[X] {
     source: string,
+    end_offset: isize,
     cursor: Ref[Span],
     extras: Ref[X],
     position_offset: Ref[isize],
@@ -166,7 +167,7 @@ impl[X] Context[X] {
     }
 
     pub fn remainder(self: Context[X]) -> string {
-        self.source.byte_slice(self.span().end, self.source.byte_len())
+        self.source.byte_slice(self.span().end, self.end_offset)
     }
 
     pub fn extras(self: Context[X]) -> X {
@@ -179,7 +180,7 @@ impl[X] Context[X] {
 
     pub fn bump(self: Context[X], bytes: isize) -> Result[(), string] {
         let span = self.span();
-        if bytes < 0 || bytes > self.source.byte_len() - span.end {
+        if bytes < 0 || bytes > self.end_offset - span.end {
             return Result::Err("bump is outside the source")
         }
         let end = span.end + bytes;
