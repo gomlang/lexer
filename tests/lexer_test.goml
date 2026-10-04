@@ -159,6 +159,28 @@ fn explicit_priority_and_ambiguity_are_recoverable() -> () {
 }
 
 #[test]
+fn later_nonaccepting_states_preserve_the_best_ambiguous_prefix() -> () {
+    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
+        [
+            logos::Rule::token("a", "first"),
+            logos::Rule::token("a", "second"),
+            logos::Rule::regex("ab+c", |_| logos::Action::Emit("long")),
+        ],
+    );
+    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let lexer = grammar.lexer("abbbbb!", ());
+    match testing::expect_err(testing::expect_some(lexer.next(), "prefix"), "ambiguity") {
+        Ambiguous(indices) => testing::assert(indices == Vec::from_array([0, 1])),
+        _ => testing::fail("expected the earlier ambiguous acceptance"),
+    }
+    same(lexer.span(), logos::Span { start: 0, end: 1 });
+    same(lexer.remainder(), "bbbbb!");
+    let complete = grammar.lexer("abbbbbc", ());
+    same(complete.next(), Option::Some(Result::Ok("long")));
+    same(complete.span(), logos::Span { start: 0, end: 7 });
+}
+
+#[test]
 fn callbacks_skip_error_extras_and_checked_bump() -> () {
     let rules: Vec[logos::Rule[string, isize, string]] = Vec::from_array(
         [

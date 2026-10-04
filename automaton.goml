@@ -212,8 +212,9 @@ fn closure(
     limit: isize,
     visited: Vec[isize],
     stamp: isize,
+    result: Vec[isize],
 ) -> Result[Vec[isize], ()] {
-    let result: Vec[isize] = Vec::new();
+    result.clear();
     while let Some(index) = seeds.pop() {
         if !spend(work, 1, limit) {
             return Result::Err(())
@@ -253,17 +254,18 @@ fn scan[T, X, E](
     for _ in 0..grammar.states.len() {
         visited.push(-1);
     }
-    let seeds: Vec[isize] = Vec::new();
+    let next: Vec[isize] = Vec::new();
     for index in 0..grammar.roots.len() {
-        seeds.push(grammar.roots.get(index));
+        next.push(grammar.roots.get(index));
     }
     let mut active = match closure(
         grammar.states,
-        seeds,
+        next,
         work,
         grammar.options.max_work,
         visited,
         start,
+        Vec::new(),
     ) {
         Ok(active) => active,
         Err(_) => return Scan::Budget(next_boundary(source, start)),
@@ -271,6 +273,7 @@ fn scan[T, X, E](
     let mut offset = start;
     let mut best_end = start;
     let mut best: Vec[isize] = Vec::new();
+    let mut current: Vec[isize] = Vec::new();
     while offset < end_offset {
         let end = next_boundary(source, offset);
         if end - start > grammar.options.max_token_bytes {
@@ -283,7 +286,7 @@ fn scan[T, X, E](
             )
         }
         let value = source.get(offset);
-        let next: Vec[isize] = Vec::new();
+        next.clear();
         for index in active {
             if let Consume(matcher, target) = grammar.states.get(index) {
                 if !spend(work, matcher.parts.len() + 1, grammar.options.max_work) {
@@ -311,11 +314,12 @@ fn scan[T, X, E](
             grammar.options.max_work,
             visited,
             offset,
+            active,
         ) {
             Ok(next) => next,
             Err(_) => return Scan::Budget(offset),
         };
-        let current: Vec[isize] = Vec::new();
+        current.clear();
         let mut score = -1;
         for index in active {
             if let Accept(rule) = grammar.states.get(index) {
@@ -331,7 +335,9 @@ fn scan[T, X, E](
         }
         if !current.is_empty() {
             best_end = offset;
+            let previous = best;
             best = current;
+            current = previous;
         }
         let mut has_transition = false;
         for index in active {
