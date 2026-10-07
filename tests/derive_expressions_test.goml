@@ -1,0 +1,50 @@
+package tests;
+
+use ecosystem::lexer as lex;
+use std::testing;
+
+#[derive(lex::Lexer, Debug, PartialEq)]
+#[lexer(extras = Vec[isize], error = Option[string])]
+enum ExpressionToken {
+    #[regex("[a-z]+", callback = |ctx| {
+        ctx.extras().push(ctx.slice().byte_len());
+        lex::Action::Emit(ExpressionToken::Word(ctx.slice()))
+    })]
+    Word(string),
+    #[token("!", callback = TokenCallbacks::bang)]
+    Bang,
+    #[token("?", callback = question_callback())]
+    Question,
+    #[regex("[0-9]+")]
+    Number(string),
+}
+
+struct TokenCallbacks {}
+
+impl TokenCallbacks {
+    fn bang(context: lex::Context[Vec[isize]]) -> lex::Action[ExpressionToken, Option[string]] {
+        context.extras().push(1);
+        lex::Action::Emit(ExpressionToken::Bang)
+    }
+}
+
+fn question_callback() -> (lex::Context[Vec[isize]]) -> lex::Action[ExpressionToken, Option[string]] {
+    |context| {
+        context.extras().push(99);
+        lex::Action::Emit(ExpressionToken::Question)
+    }
+}
+
+#[test]
+fn derived_expression_callbacks_and_compound_types_preserve_context() -> () {
+    let stream = testing::expect_ok(ExpressionToken::lexer("abc!12?", Vec::new()), "lexer");
+    same(stream.next(), Option::Some(Result::Ok(ExpressionToken::Word("abc"))));
+    same(stream.next(), Option::Some(Result::Ok(ExpressionToken::Bang)));
+    same(stream.next(), Option::Some(Result::Ok(ExpressionToken::Number("12"))));
+    same(stream.next(), Option::Some(Result::Ok(ExpressionToken::Question)));
+    testing::assert_none(stream.next());
+    same(stream.extras().len(), 3);
+    same(stream.extras().get(0), 3);
+    same(stream.extras().get(1), 1);
+    same(stream.extras().get(2), 99);
+}

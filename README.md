@@ -50,17 +50,22 @@ The derive adds four public inherent methods:
 | `Token::lexer(source, extras)` | `Result[Lexer[Token, X, E], CompileError]` |
 
 `X` defaults to `()` and `E` to `string`. Set either using enum-level
-`#[lexer(extras = State, error = Error)]`; values are type names or module-qualified
-type paths in the source file's scope. Use a type alias for a compound type.
+`#[lexer(extras = State, error = Error)]`; values are types in the source file's scope,
+including applications such as `Vec[State]` and `Option[Error]`.
 `Token::lexer` compiles a new grammar on each call. For repeated inputs, build
 `Token::grammar()` once and use its `lexer`, `lexer_at`, or `lexer_range` methods.
 
-Rules accept `callback = function_path`, `priority = 10`, `ignore_ascii_case`,
+Rules accept `callback = expression`, `priority = 10`, `ignore_ascii_case`,
 and `dot_all`. Priority must be a nonnegative decimal integer fitting `isize`; a quoted
 decimal string such as `priority = "10"` is also accepted. Flags take no value. Normal and raw pattern strings are supported.
 Skip rules accept the same options except `callback`.
 
-A callback is a free function with signature `(Context[X]) -> Action[Token, E]`.
+A callback expression must have signature `(Context[X]) -> Action[Token, E]`. Free
+functions, inherent method values, inline closures and expressions returning callbacks
+are accepted. For example, `#[regex("[a-z]+", callback = |ctx|
+lexer::Action::Emit(Token::Name(ctx.slice())))]` can build a token directly. Callback
+factory expressions run when `lexer_rules()` builds the rules; callbacks run when tokens
+are matched.
 It may emit a token, skip the match, or report an error, and has the normal
 `Context` access to extras, spans and checked `bump`:
 
@@ -83,7 +88,9 @@ fn number(context: lexer::Context[()]) -> lexer::Action[NumberToken, string] {
 ```
 
 Malformed attributes, unsupported enum shapes and missing rules are compile-time
-errors. Callback signatures are checked by the compiler. Regex syntax, nullable
+errors. Invalid options point to the specific attribute argument. Generated text
+callbacks use the annotated enum identity and keep working when consumer types shadow
+library type names. Callback signatures are checked by the compiler. Regex syntax, nullable
 rules and automaton budgets are checked when constructing the grammar and return
 `CompileError`; equal-length/equal-priority overlaps remain runtime
 `LexError::Ambiguous` errors. Derivation does not change those semantics.
@@ -210,7 +217,8 @@ Reference design: [Logos token rules](https://logos.maciej.codes/attributes/toke
 
 ## Development and examples
 
-Requires GoML 0.1.57 or newer. The `examples/basic/` example shares the root manifest; test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
+Requires GoML 0.1.59 or newer. The `examples/basic/` example shares the root manifest;
+test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
 
 ```sh
 goml run --example basic

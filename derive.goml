@@ -2,7 +2,7 @@ package lexer;
 
 #[comptime_derive]
 fn lexer_static_call(input: DeriveInput, owner: string, method: string, args: MetaExprList) -> MetaExpr {
-    meta_expr_call(input, meta_type_name(meta_type_named(input, owner)) + "::" + method, args)
+    meta_expr_type_member(meta_type_named(input, owner), method, meta_type_list_new(), args)
 }
 
 #[comptime_derive]
@@ -35,16 +35,17 @@ fn lexer_result(input: DeriveInput, value: MetaType) -> MetaType {
 }
 
 #[comptime_derive]
-fn lexer_rule(input: DeriveInput, variant: isize, attribute: MetaAttribute) -> MetaExpr {
+fn lexer_rule(input: DeriveInput, variant: isize, attribute: MetaAttribute, extras: MetaType) -> MetaExpr {
+    derive_set_span(meta_attribute_span(attribute));
     validate_attribute(attribute, false);
     let kind = meta_attribute_name(attribute);
-    let args = derive_args(meta_expr_string(attribute_option(attribute, "", "")));
+    let args = derive_args(meta_expr_string(meta_attribute_argument_text(attribute, 0)));
     let mut rule = if kind == "skip" {
         lexer_static_call(input, "Rule", "skip", args)
     } else {
-        let callback = attribute_option(attribute, "callback", "");
-        if callback != "" {
-            meta_expr_list_push(args, meta_expr_var(callback));
+        let callback = attribute_option_index(attribute, "callback");
+        if callback >= 0 {
+            meta_expr_list_push(args, meta_attribute_argument_expr(attribute, callback));
             lexer_static_call(
                 input,
                 "Rule",
@@ -85,30 +86,45 @@ fn lexer_rule(input: DeriveInput, variant: isize, attribute: MetaAttribute) -> M
                     "Lexer payload variants require a callback unless they contain one string",
                 )
             }
-            meta_expr_list_push(
-                args,
-                meta_expr_var(derive_item_name(input) + "::" + derive_variant_name(input, variant)),
+            let context_name = derive_fresh_name(input, "lexer_context");
+            let parameters = meta_param_list_new();
+            meta_param_list_push(
+                parameters,
+                context_name,
+                meta_type_apply(meta_type_named(input, "Context"), derive_types(extras)),
             );
+            let text = meta_expr_method_call(
+                meta_expr_var(context_name),
+                "slice",
+                meta_expr_list_new(),
+            );
+            let token = meta_expr_target_constructor(
+                input,
+                derive_variant_name(input, variant),
+                derive_args(text),
+            );
+            let emit = meta_expr_call(input, "Action::Emit", derive_args(token));
+            meta_expr_list_push(args, meta_expr_closure(parameters, emit));
             lexer_static_call(
                 input,
                 "Rule",
                 if kind == "token" {
-                    "literal_text"
+                    "literal"
                 } else {
-                    "regex_text"
+                    "regex"
                 },
                 args,
             )
         }
     };
-    let priority = attribute_option(attribute, "priority", "default");
-    if priority != "default" {
+    let priority = attribute_option_index(attribute, "priority");
+    if priority >= 0 {
         rule = meta_expr_method_call(
             rule,
             "with_priority",
             derive_args(
                 meta_expr_integer(
-                    attribute_priority(priority).to_string(),
+                    attribute_priority(attribute, priority).to_string(),
                     meta_type_call_site("isize"),
                 ),
             ),
@@ -145,13 +161,13 @@ pub fn derive_lexer(input: DeriveInput) -> DeriveOutput {
             }
             configured = true;
             validate_attribute(attribute, true);
-            let extra_name = attribute_option(attribute, "extras", "");
-            let error_name = attribute_option(attribute, "error", "");
-            if extra_name != "" {
-                extras = meta_type_call_site(extra_name);
+            let extra_index = attribute_option_index(attribute, "extras");
+            let error_index = attribute_option_index(attribute, "error");
+            if extra_index >= 0 {
+                extras = meta_attribute_argument_type(attribute, extra_index);
             }
-            if error_name != "" {
-                error = meta_type_call_site(error_name);
+            if error_index >= 0 {
+                error = meta_attribute_argument_type(attribute, error_index);
             }
         }
     }
@@ -177,7 +193,7 @@ pub fn derive_lexer(input: DeriveInput) -> DeriveOutput {
                 compile_error("skip and lexer attributes belong on the enum")
             }
             if name == "token" || name == "regex" {
-                let rule = lexer_rule(input, variant, attribute);
+                let rule = lexer_rule(input, variant, attribute, extras);
                 meta_block_expr(block, meta_expr_method_call(rules, "push", derive_args(rule)));
                 count += 1;
             }
@@ -204,7 +220,11 @@ pub fn derive_lexer(input: DeriveInput) -> DeriveOutput {
         if meta_attribute_name(attribute) == "skip" {
             meta_block_expr(
                 block,
-                meta_expr_method_call(rules, "push", derive_args(lexer_rule(input, 0, attribute))),
+                meta_expr_method_call(
+                    rules,
+                    "push",
+                    derive_args(lexer_rule(input, 0, attribute, extras)),
+                ),
             );
         }
     }

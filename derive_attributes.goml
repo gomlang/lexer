@@ -1,284 +1,138 @@
 package lexer;
 
 #[comptime_derive]
-fn attribute_space(text: string, start: isize) -> isize {
-    let mut index = start;
-    while index < text.byte_len() {
-        let value = text.byte_get(index);
-        if value == b' ' || value == b'\t' || value == b'\r' || value == b'\n' {
-            index += 1;
-        } else if value == b'/' && index + 1 < text.byte_len() && text.byte_get(index + 1) == b'/' {
-            index += 2;
-            while index < text.byte_len() && text.byte_get(index) != b'\n' {
-                index += 1;
-            }
-        } else if value == b'/' && index + 1 < text.byte_len() && text.byte_get(index + 1) == b'*' {
-            index += 2;
-            let mut depth = 1;
-            while index < text.byte_len() && depth > 0 {
-                if index + 1 < text.byte_len() && text.byte_get(index) == b'/'
-                    && text.byte_get(index + 1) == b'*' {
-                    depth += 1;
-                    index += 2;
-                } else if index + 1 < text.byte_len() && text.byte_get(index) == b'*'
-                    && text.byte_get(index + 1) == b'/' {
-                    depth -= 1;
-                    index += 2;
-                } else {
-                    index += 1;
-                }
-            }
+fn attribute_option_index(attribute: MetaAttribute, key: string) -> isize {
+    for index in 0..meta_attribute_argument_count(attribute) {
+        let name = if meta_attribute_argument_kind(attribute, index) == "ident" {
+            meta_attribute_argument_text(attribute, index)
+        } else if meta_attribute_argument_kind(attribute, index) == "named" {
+            meta_attribute_argument_name(attribute, index)
         } else {
-            break;
+            ""
+        };
+        if name == key {
+            return index
         }
     }
-    index
+    return -1
 }
 
 #[comptime_derive]
-fn attribute_identifier(value: byte, initial: bool) -> bool {
-    (value >= b'a' && value <= b'z') || (value >= b'A' && value <= b'Z') || value == b'_'
-        || (!initial && value >= b'0' && value <= b'9')
-}
-
-#[comptime_derive]
-fn attribute_start(attribute: MetaAttribute) -> isize {
-    let text = meta_attribute_text(attribute);
-    if !meta_attribute_has_argument_list(attribute) {
-        return text.byte_len()
+fn attribute_option(attribute: MetaAttribute, key: string, fallback: string) -> string {
+    let index = attribute_option_index(attribute, key);
+    if index < 0 {
+        return fallback
     }
-    let mut index = 0;
-    while index < text.byte_len() {
-        index = attribute_space(text, index);
-        if index >= text.byte_len() || text.byte_get(index) == b'(' {
-            return index + 1
-        }
-        index += 1;
-    }
-    index
-}
-
-#[comptime_derive]
-fn attribute_string(attribute: MetaAttribute, key: string, start: isize) -> (string, isize) {
-    let text = meta_attribute_text(attribute);
-    let mut index = start;
-    let raw = index < text.byte_len() && text.byte_get(index) == b'r';
-    let mut hashes = 0;
-    if raw {
-        index += 1;
-        while index < text.byte_len() && text.byte_get(index) == b'#' {
-            hashes += 1;
-            index += 1;
-        }
-    }
-    if index >= text.byte_len() || text.byte_get(index) != b'"' {
-        compile_error("Lexer attributes require strings or paths")
-    }
-    index += 1;
-    let begin = index;
-    while index < text.byte_len() {
-        if text.byte_get(index) == b'"' {
-            let mut matched = 0;
-            while matched < hashes && index + 1 + matched < text.byte_len()
-                && text.byte_get(index + 1 + matched) == b'#' {
-                matched += 1;
-            }
-            if matched == hashes {
-                if raw {
-                    return (text.byte_slice(begin, index), index + 1 + hashes)
-                }
-                for item in 0..meta_attribute_argument_count(attribute) {
-                    if (key == "" && meta_attribute_argument_kind(attribute, item) == "string")
-                        || (meta_attribute_argument_kind(attribute, item) == "named"
-                            && meta_attribute_argument_name(attribute, item) == key
-                            && meta_attribute_argument_value_kind(attribute, item) == "string") {
-                        return (meta_attribute_argument_text(attribute, item), index + 1)
-                    }
-                }
-                compile_error("invalid Lexer string attribute")
-            }
-        }
-        if !raw && text.byte_get(index) == b'\\' {
-            index += 1;
-        }
-        index += 1;
-    }
-    compile_error("unterminated Lexer string attribute")
-}
-
-#[comptime_derive]
-fn attribute_is_string(text: string, index: isize) -> bool {
-    index < text.byte_len()
-        && (text.byte_get(index) == b'"'
-            || (text.byte_get(index) == b'r' && index + 1 < text.byte_len()
-                && (text.byte_get(index + 1) == b'"' || text.byte_get(index + 1) == b'#')))
-}
-
-#[comptime_derive]
-fn attribute_next(attribute: MetaAttribute, start: isize) -> (string, string, string, isize) {
-    let text = meta_attribute_text(attribute);
-    let mut index = attribute_space(text, start);
-    if index >= text.byte_len() || text.byte_get(index) == b')' {
-        return ("", "", "end", text.byte_len())
-    }
-    let mut key = "";
-    let mut value = "";
-    let mut kind = "flag";
-    if attribute_is_string(text, index) {
-        let parsed = attribute_string(attribute, "", index);
-        value = parsed.0;
-        index = parsed.1;
-        kind = "string";
+    if meta_attribute_argument_kind(attribute, index) == "ident" {
+        "true"
     } else {
-        if !attribute_identifier(text.byte_get(index), true) {
-            compile_error("Lexer attributes require strings, paths or option names")
-        }
-        let begin = index;
-        index += 1;
-        while index < text.byte_len() && attribute_identifier(text.byte_get(index), false) {
-            index += 1;
-        }
-        key = text.byte_slice(begin, index);
-        index = attribute_space(text, index);
-        if index < text.byte_len() && text.byte_get(index) == b'=' {
-            index = attribute_space(text, index + 1);
-            if attribute_is_string(text, index) {
-                let parsed = attribute_string(attribute, key, index);
-                value = parsed.0;
-                index = parsed.1;
-                kind = "named_string";
-            } else if index < text.byte_len()
-                && (text.byte_get(index) == b'-'
-                    || (text.byte_get(index) >= b'0' && text.byte_get(index) <= b'9')) {
-                let begin = index;
-                index += 1;
-                while index < text.byte_len() && text.byte_get(index) >= b'0'
-                    && text.byte_get(index) <= b'9' {
-                    index += 1;
-                }
-                value = text.byte_slice(begin, index);
-                kind = "integer";
-            } else {
-                kind = "path";
-                while true {
-                    if index >= text.byte_len() || !attribute_identifier(text.byte_get(index), true) {
-                        compile_error("Lexer option requires a path or quoted string")
-                    }
-                    let part = index;
-                    index += 1;
-                    while index < text.byte_len()
-                        && attribute_identifier(text.byte_get(index), false) {
-                        index += 1;
-                    }
-                    value += text.byte_slice(part, index);
-                    index = attribute_space(text, index);
-                    if index + 1 >= text.byte_len() || text.byte_slice(index, index + 2) != "::" {
-                        break;
-                    }
-                    value += "::";
-                    index = attribute_space(text, index + 2);
-                }
-            }
-        }
+        meta_attribute_argument_text(attribute, index)
     }
-    index = attribute_space(text, index);
-    if index >= text.byte_len() || (text.byte_get(index) != b',' && text.byte_get(index) != b')') {
-        compile_error("Lexer attributes require comma-separated options")
-    }
-    let next = if text.byte_get(index) == b')' {
-        text.byte_len()
-    } else {
-        index + 1
-    };
-    (key, value, kind, next)
 }
 
 #[comptime_derive]
 fn validate_attribute(attribute: MetaAttribute, configuration: bool) -> () {
     if !meta_attribute_has_argument_list(attribute) {
-        compile_error("Lexer attributes require parentheses")
+        let _ = derive_error_at(attribute, "Lexer attributes require parentheses");
     }
-    let mut index = attribute_start(attribute);
-    let mut count = 0;
-    while index < meta_attribute_text(attribute).byte_len() {
-        let current = attribute_next(attribute, index);
-        if current.2 == "end" {
-            break;
-        }
-        let mut previous = attribute_start(attribute);
-        while previous < index {
-            let prior = attribute_next(attribute, previous);
-            if prior.0 == current.0 {
-                compile_error("duplicate Lexer option or pattern: " + current.0)
+    let count = meta_attribute_argument_count(attribute);
+    if count == 0 {
+        let _ = derive_error_at(attribute, "Lexer attribute cannot be empty");
+    }
+    for index in 0..count {
+        let kind = meta_attribute_argument_kind(attribute, index);
+        let value_kind = meta_attribute_argument_value_kind(attribute, index);
+        let name = if kind == "ident" {
+            meta_attribute_argument_text(attribute, index)
+        } else if meta_attribute_argument_kind(attribute, index) == "named" {
+            meta_attribute_argument_name(attribute, index)
+        } else {
+            ""
+        };
+        for previous in 0..index {
+            let previous_name = if meta_attribute_argument_kind(attribute, previous) == "ident" {
+                meta_attribute_argument_text(attribute, previous)
+            } else if meta_attribute_argument_kind(attribute, previous) == "named" {
+                meta_attribute_argument_name(attribute, previous)
+            } else {
+                ""
+            };
+            if name == previous_name {
+                let _ = derive_error_at_argument(
+                    attribute,
+                    index,
+                    "duplicate Lexer option or pattern: " + name,
+                );
             }
-            previous = prior.3;
         }
         if configuration {
-            if (current.0 != "extras" && current.0 != "error") || current.2 != "path" {
-                compile_error("lexer configuration accepts extras and error type paths")
+            if kind != "named" || (name != "extras" && name != "error")
+                || (value_kind != "ident" && value_kind != "path" && value_kind != "syntax") {
+                let _ = derive_error_at_argument(
+                    attribute,
+                    index,
+                    "lexer configuration accepts extras and error type paths",
+                );
             }
-        } else if count == 0 {
-            if current.2 != "string" || current.1 == "" {
-                compile_error("Lexer rule requires a nonempty pattern string first")
+            let _ = meta_attribute_argument_type(attribute, index);
+        } else if index == 0 {
+            if kind != "string" || meta_attribute_argument_text(attribute, index) == "" {
+                let _ = derive_error_at_argument(
+                    attribute,
+                    index,
+                    "Lexer rule requires a nonempty pattern string first",
+                );
             }
         } else {
-            let valid = (current.0 == "callback" && current.2 == "path")
-                || (current.0 == "priority"
-                    && (current.2 == "named_string" || current.2 == "integer"))
-                || ((current.0 == "ignore_ascii_case" || current.0 == "dot_all")
-                    && current.2 == "flag");
+            let valid = (name == "callback" && kind == "named"
+                && (value_kind == "ident" || value_kind == "path" || value_kind == "syntax"))
+                || (name == "priority" && kind == "named"
+                    && (value_kind == "string" || value_kind == "integer" || value_kind == "syntax"))
+                || ((name == "ignore_ascii_case" || name == "dot_all") && kind == "ident");
             if !valid {
-                compile_error("unknown or invalid Lexer rule option: " + current.0)
+                let _ = derive_error_at_argument(
+                    attribute,
+                    index,
+                    "unknown or invalid Lexer rule option: " + name,
+                );
             }
-            if current.0 == "priority" {
-                let _ = attribute_priority(current.1);
+            if name == "priority" {
+                let _ = attribute_priority(attribute, index);
             }
-            if meta_attribute_name(attribute) == "skip" && current.0 == "callback" {
-                compile_error("skip rules cannot specify a callback")
+            if meta_attribute_name(attribute) == "skip" && name == "callback" {
+                let _ = derive_error_at_argument(
+                    attribute,
+                    index,
+                    "skip rules cannot specify a callback",
+                );
             }
         }
-        count += 1;
-        index = current.3;
-    }
-    if count == 0 {
-        compile_error("Lexer attribute cannot be empty")
     }
 }
 
 #[comptime_derive]
-fn attribute_option(attribute: MetaAttribute, key: string, fallback: string) -> string {
-    let mut index = attribute_start(attribute);
-    while index < meta_attribute_text(attribute).byte_len() {
-        let current = attribute_next(attribute, index);
-        if current.2 == "end" {
-            break;
-        }
-        if current.0 == key {
-            return if current.2 == "flag" {
-                "true"
-            } else {
-                current.1
-            }
-        }
-        index = current.3;
-    }
-    fallback
-}
-
-#[comptime_derive]
-fn attribute_priority(text: string) -> isize {
+fn attribute_priority(attribute: MetaAttribute, argument: isize) -> isize {
+    let text = meta_attribute_argument_text(attribute, argument);
     if text == "" {
-        compile_error("Lexer priority must be a nonnegative decimal integer")
+        let _ = derive_error_at_argument(
+            attribute,
+            argument,
+            "Lexer priority must be a nonnegative decimal integer",
+        );
     }
     let mut result = 0;
     for index in 0..text.byte_len() {
         let digit = text.byte_get(index);
         if digit < b'0' || digit > b'9' {
-            compile_error("Lexer priority must be a nonnegative decimal integer")
+            let _ = derive_error_at_argument(
+                attribute,
+                argument,
+                "Lexer priority must be a nonnegative decimal integer",
+            );
         }
         let value = (digit - b'0').to_isize();
         if result > (9223372036854775807 - value) / 10 {
-            compile_error("Lexer priority exceeds isize")
+            let _ = derive_error_at_argument(attribute, argument, "Lexer priority exceeds isize");
         }
         result = result * 10 + value;
     }
