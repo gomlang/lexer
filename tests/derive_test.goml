@@ -1,0 +1,171 @@
+package tests;
+
+use ecosystem::lexer as lex;
+use std::testing;
+use std::num;
+
+struct Rule {
+    unused: bool,
+}
+
+struct Grammar {
+    unused: bool,
+}
+
+#[derive(lex::Lexer, Debug, PartialEq)]
+#[skip(r"\s+")]
+enum DerivedToken {
+    #[token("let")]
+    Let,
+    #[regex("[a-z]+")]
+    Name(string),
+    #[token("=")]
+    #[token(":=")]
+    Assign,
+}
+
+#[derive(Debug, PartialEq)]
+enum TokenError {
+    Rejected,
+}
+
+struct TokenState {
+    count: isize,
+}
+
+#[derive(lex::Lexer, Debug, PartialEq)]
+#[lexer(extras = TokenState, error = TokenError)]
+#[skip(" +")]
+#[skip(r#"\t+"#)]
+enum StatefulToken {
+    #[regex("[0-9]+", callback = number_token)]
+    Number(isize),
+    #[token("bad", callback = reject_token)]
+    Rejected,
+    #[token("ignore", callback = skip_token)]
+    Ignored,
+    #[token("!", callback = extended_token)]
+    Extended {
+        text: string,
+        seen: isize,
+    },
+}
+
+fn number_token(ctx: lex::Context[TokenState]) -> lex::Action[StatefulToken, TokenError] {
+    ctx.set_extras(TokenState { count: ctx.extras().count + 1 });
+    lex::Action::Emit(
+        StatefulToken::Number(testing::expect_ok(num::parse_int_structured(ctx.slice()), "integer")),
+    )
+}
+
+fn reject_token(_ctx: lex::Context[TokenState]) -> lex::Action[StatefulToken, TokenError] {
+    lex::Action::Error(TokenError::Rejected)
+}
+
+fn skip_token(_ctx: lex::Context[TokenState]) -> lex::Action[StatefulToken, TokenError] {
+    lex::Action::Skip
+}
+
+fn extended_token(ctx: lex::Context[TokenState]) -> lex::Action[StatefulToken, TokenError] {
+    testing::assert_ok(ctx.bump(2));
+    lex::Action::Emit(StatefulToken::Extended { text: ctx.slice(), seen: ctx.extras().count })
+}
+
+#[test]
+fn derived_callbacks_share_extras_skip_recover_and_extend_unicode_tokens() -> () {
+    let stream = testing::expect_ok(
+        StatefulToken::lexer("42 bad ignore\t7 !é", TokenState { count: 0 }),
+        "lexer",
+    );
+    same(stream.next(), Option::Some(Result::Ok(StatefulToken::Number(42))));
+    same(stream.next(), Option::Some(Result::Err(lex::LexError::Callback(TokenError::Rejected))));
+    same(stream.next(), Option::Some(Result::Ok(StatefulToken::Number(7))));
+    same(stream.next(), Option::Some(Result::Ok(StatefulToken::Extended { text: "!é", seen: 2 })));
+    testing::assert_none(stream.next());
+    same(stream.extras().count, 2);
+}
+
+#[derive(lex::Lexer, Debug, PartialEq)]
+enum FlagToken {
+    #[token("go", ignore_ascii_case, priority = 10)]
+    Keyword,
+    #[regex("[a-z]+", ignore_ascii_case)]
+    Name(string),
+    #[regex("'.*'", dot_all)]
+    Quoted(string),
+    #[token("\"\\\n😀")]
+    Escaped,
+    #[token(r##"raw"#"##)]
+    Raw,
+    #[regex("[0-9]+")]
+    Digits,
+    #[token("é")]
+    LiteralText(string),
+}
+
+#[test]
+fn derived_options_and_escaped_patterns_match_runtime_rules() -> () {
+    let grammar = testing::expect_ok(FlagToken::grammar(), "options");
+    let cases = Vec::from_array(
+        [
+            ("GO", FlagToken::Keyword),
+            ("gopher", FlagToken::Name("gopher")),
+            ("'a\nb'", FlagToken::Quoted("'a\nb'")),
+            ("\"\\\n😀", FlagToken::Escaped),
+            ("raw\"#", FlagToken::Raw),
+            ("123", FlagToken::Digits),
+            ("é", FlagToken::LiteralText("é")),
+        ],
+    );
+    for (source, expected) in cases {
+        let stream = grammar.lexer(source, ());
+        same(stream.next(), Option::Some(Result::Ok(expected)));
+        testing::assert_none(stream.next());
+    }
+}
+
+#[derive(lex::Lexer)]
+enum InvalidRegexToken {
+    #[regex("a*")]
+    Empty,
+}
+
+#[derive(lex::Lexer, Debug, PartialEq)]
+enum AmbiguousToken {
+    #[token("same")]
+    First,
+    #[token("same")]
+    Second,
+}
+
+#[test]
+fn derived_grammars_preserve_compile_errors_and_runtime_ambiguity() -> () {
+    let error = testing::expect_err(InvalidRegexToken::grammar(), "nullable regex");
+    same(error.rule, 0);
+    testing::assert_err(InvalidRegexToken::lexer("", ()));
+    let stream = testing::expect_ok(AmbiguousToken::lexer("same?", ()), "ambiguous grammar");
+    same(
+        stream.next(),
+        Option::Some(Result::Err(lex::LexError::Ambiguous(Vec::from_array([0, 1])))),
+    );
+    same(stream.next(), Option::Some(Result::Err(lex::LexError::Unexpected)));
+    testing::assert_none(stream.next());
+}
+
+#[test]
+fn derived_rules_preserve_longest_match_priority_payloads_and_spans() -> () {
+    let grammar = testing::expect_ok(DerivedToken::grammar(), "derived grammar");
+    same(grammar.rule_count(), 5);
+    let stream = grammar.lexer("let letter := name", ());
+    same(stream.next(), Option::Some(Result::Ok(DerivedToken::Let)));
+    same(stream.next(), Option::Some(Result::Ok(DerivedToken::Name("letter"))));
+    same(stream.span(), lex::Span { start: 4, end: 10 });
+    same(stream.next(), Option::Some(Result::Ok(DerivedToken::Assign)));
+    same(stream.next(), Option::Some(Result::Ok(DerivedToken::Name("name"))));
+    testing::assert_none(stream.next());
+    testing::assert_none(stream.next());
+    testing::assert_ok(DerivedToken::lexer("let", ()));
+    testing::assert_err(
+        DerivedToken::grammar_with(lex::Options { max_states: 1, ..lex::Options::new() }),
+    );
+}

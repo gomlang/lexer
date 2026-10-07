@@ -1,0 +1,31 @@
+package tests;
+
+use ecosystem::lexer;
+use ecosystem::lexer::examples::derive as example;
+use std::testing;
+
+#[test]
+fn derived_methods_are_public_across_package_and_registry_boundaries() -> () {
+    let grammar = testing::expect_ok(example::Token::grammar(), "public grammar");
+    let stream = grammar.lexer("let answer = 42", ());
+    let actual = Vec::new();
+    for token in stream {
+        actual.push(testing::expect_ok(token, "token"));
+    }
+    testing::assert(
+        actual
+            == Vec::from_array(
+                [
+                    example::Token::Let,
+                    example::Token::Name("answer"),
+                    example::Token::Equals,
+                    example::Token::Number(42),
+                ],
+            ),
+    );
+    testing::assert_eq(example::Token::lexer_rules().len(), 5);
+    testing::assert_ok(example::Token::lexer("let", ()));
+    testing::assert_err(
+        example::Token::grammar_with(lexer::Options { max_states: 1, ..lexer::Options::new() }),
+    );
+}

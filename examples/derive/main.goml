@@ -1,0 +1,40 @@
+package main;
+
+use ecosystem::lexer;
+use std::num;
+use std::testing;
+
+#[derive(lexer::Lexer, Debug, PartialEq)]
+#[skip(r"\s+")]
+pub enum Token {
+    #[token("let")]
+    Let,
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
+    Name(string),
+    #[regex("[0-9]+", callback = number)]
+    Number(isize),
+    #[token("=")]
+    Equals,
+}
+
+fn number(context: lexer::Context[()]) -> lexer::Action[Token, string] {
+    match num::parse_int_structured(context.slice()) {
+        Ok(value) => lexer::Action::Emit(Token::Number(value)),
+        Err(error) => lexer::Action::Error(error.to_string()),
+    }
+}
+
+fn tokens(source: string) -> Vec[Token] {
+    let stream = testing::expect_ok(Token::lexer(source, ()), "grammar");
+    let result = Vec::new();
+    for token in stream {
+        result.push(testing::expect_ok(token, "token"));
+    }
+    result
+}
+
+fn main() -> () {
+    for token in tokens("let answer = 42") {
+        println(token.debug());
+    }
+}

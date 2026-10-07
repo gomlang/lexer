@@ -1,0 +1,272 @@
+package lexer;
+
+#[comptime_derive]
+fn lexer_static_call(input: DeriveInput, owner: string, method: string, args: MetaExprList) -> MetaExpr {
+    meta_expr_call(input, meta_type_name(meta_type_named(input, owner)) + "::" + method, args)
+}
+
+#[comptime_derive]
+fn derive_args(value: MetaExpr) -> MetaExprList {
+    let args = meta_expr_list_new();
+    meta_expr_list_push(args, value);
+    args
+}
+
+#[comptime_derive]
+fn derive_types(value: MetaType) -> MetaTypeList {
+    let types = meta_type_list_new();
+    meta_type_list_push(types, value);
+    types
+}
+
+#[comptime_derive]
+fn lexer_type(input: DeriveInput, name: string, extras: MetaType, error: MetaType) -> MetaType {
+    let types = derive_types(derive_target_type(input));
+    meta_type_list_push(types, extras);
+    meta_type_list_push(types, error);
+    meta_type_apply(meta_type_named(input, name), types)
+}
+
+#[comptime_derive]
+fn lexer_result(input: DeriveInput, value: MetaType) -> MetaType {
+    let types = derive_types(value);
+    meta_type_list_push(types, meta_type_named(input, "CompileError"));
+    meta_type_apply(meta_type_call_site("Result"), types)
+}
+
+#[comptime_derive]
+fn lexer_rule(input: DeriveInput, variant: isize, attribute: MetaAttribute) -> MetaExpr {
+    validate_attribute(attribute, false);
+    let kind = meta_attribute_name(attribute);
+    let args = derive_args(meta_expr_string(attribute_option(attribute, "", "")));
+    let mut rule = if kind == "skip" {
+        lexer_static_call(input, "Rule", "skip", args)
+    } else {
+        let callback = attribute_option(attribute, "callback", "");
+        if callback != "" {
+            meta_expr_list_push(args, meta_expr_var(callback));
+            lexer_static_call(
+                input,
+                "Rule",
+                if kind == "token" {
+                    "literal"
+                } else {
+                    "regex"
+                },
+                args,
+            )
+        } else if derive_variant_kind(input, variant) == 0 {
+            meta_expr_list_push(
+                args,
+                meta_expr_target_constructor(
+                    input,
+                    derive_variant_name(input, variant),
+                    meta_expr_list_new(),
+                ),
+            );
+            lexer_static_call(
+                input,
+                "Rule",
+                if kind == "token" {
+                    "token"
+                } else {
+                    "regex_token"
+                },
+                args,
+            )
+        } else {
+            if derive_variant_kind(input, variant) != 1
+                || derive_variant_field_count(input, variant) != 1
+                || !meta_type_equal(
+                    derive_variant_field_type(input, variant, 0),
+                    meta_type_call_site("string"),
+                ) {
+                compile_error(
+                    "Lexer payload variants require a callback unless they contain one string",
+                )
+            }
+            meta_expr_list_push(
+                args,
+                meta_expr_var(derive_item_name(input) + "::" + derive_variant_name(input, variant)),
+            );
+            lexer_static_call(
+                input,
+                "Rule",
+                if kind == "token" {
+                    "literal_text"
+                } else {
+                    "regex_text"
+                },
+                args,
+            )
+        }
+    };
+    let priority = attribute_option(attribute, "priority", "default");
+    if priority != "default" {
+        rule = meta_expr_method_call(
+            rule,
+            "with_priority",
+            derive_args(
+                meta_expr_integer(
+                    attribute_priority(priority).to_string(),
+                    meta_type_call_site("isize"),
+                ),
+            ),
+        );
+    }
+    if attribute_option(attribute, "ignore_ascii_case", "false") == "true" {
+        rule = meta_expr_method_call(rule, "ignore_ascii_case", meta_expr_list_new());
+    }
+    if attribute_option(attribute, "dot_all", "false") == "true" {
+        rule = meta_expr_method_call(rule, "with_dot_all", meta_expr_list_new());
+    }
+    rule
+}
+
+#[comptime_derive(Lexer)]
+pub fn derive_lexer(input: DeriveInput) -> DeriveOutput {
+    if derive_item_kind(input) != 1 || derive_variant_count(input) == 0
+        || derive_generic_count(input) != 0 {
+        compile_error("Lexer derive requires a nonempty, non-generic enum")
+    }
+    let output = derive_output_inherent(input);
+    let mut extras = meta_type_call_site("()");
+    let mut error = meta_type_call_site("string");
+    let mut configured = false;
+    for index in 0..derive_attribute_count(input) {
+        let attribute = derive_attribute(input, index);
+        let name = meta_attribute_name(attribute);
+        if name == "token" || name == "regex" {
+            compile_error("token and regex attributes belong on enum variants")
+        }
+        if name == "lexer" {
+            if configured {
+                compile_error("duplicate lexer configuration")
+            }
+            configured = true;
+            validate_attribute(attribute, true);
+            let extra_name = attribute_option(attribute, "extras", "");
+            let error_name = attribute_option(attribute, "error", "");
+            if extra_name != "" {
+                extras = meta_type_call_site(extra_name);
+            }
+            if error_name != "" {
+                error = meta_type_call_site(error_name);
+            }
+        }
+    }
+    let block = meta_block_new();
+    let rules_name = derive_fresh_name(input, "lexer_rules");
+    let rules = meta_expr_var(rules_name);
+    let rules_type = meta_type_apply(
+        meta_type_call_site("Vec"),
+        derive_types(lexer_type(input, "Rule", extras, error)),
+    );
+    meta_block_let_typed(
+        block,
+        rules_name,
+        rules_type,
+        meta_expr_call_site("Vec::new", meta_expr_list_new()),
+    );
+    for variant in 0..derive_variant_count(input) {
+        let mut count = 0;
+        for index in 0..derive_variant_attribute_count(input, variant) {
+            let attribute = derive_variant_attribute(input, variant, index);
+            let name = meta_attribute_name(attribute);
+            if name == "skip" || name == "lexer" {
+                compile_error("skip and lexer attributes belong on the enum")
+            }
+            if name == "token" || name == "regex" {
+                let rule = lexer_rule(input, variant, attribute);
+                meta_block_expr(block, meta_expr_method_call(rules, "push", derive_args(rule)));
+                count += 1;
+            }
+        }
+        if count == 0 {
+            compile_error(
+                "Lexer variant requires a token or regex rule: "
+                    + derive_variant_name(input, variant),
+            )
+        }
+        for field in 0..derive_variant_field_count(input, variant) {
+            for index in 0..derive_variant_field_attribute_count(input, variant, field) {
+                let name = meta_attribute_name(
+                    derive_variant_field_attribute(input, variant, field, index),
+                );
+                if name == "token" || name == "regex" || name == "skip" || name == "lexer" {
+                    compile_error("Lexer attributes cannot be placed on payload fields")
+                }
+            }
+        }
+    }
+    for index in 0..derive_attribute_count(input) {
+        let attribute = derive_attribute(input, index);
+        if meta_attribute_name(attribute) == "skip" {
+            meta_block_expr(
+                block,
+                meta_expr_method_call(rules, "push", derive_args(lexer_rule(input, 0, attribute))),
+            );
+        }
+    }
+    derive_output_add_public_method(
+        output,
+        meta_method(
+            "lexer_rules",
+            meta_param_list_new(),
+            rules_type,
+            meta_block_finish(block, rules),
+        ),
+    );
+    let grammar_type = lexer_result(input, lexer_type(input, "Grammar", extras, error));
+    let grammar_args = derive_args(
+        meta_expr_call_site(derive_item_name(input) + "::lexer_rules", meta_expr_list_new()),
+    );
+    derive_output_add_public_method(
+        output,
+        meta_method(
+            "grammar",
+            meta_param_list_new(),
+            grammar_type,
+            lexer_static_call(input, "Grammar", "compile", grammar_args),
+        ),
+    );
+    let options_name = derive_fresh_name(input, "lexer_options");
+    let options = meta_param_list_new();
+    meta_param_list_push(options, options_name, meta_type_named(input, "Options"));
+    let options_args = derive_args(
+        meta_expr_call_site(derive_item_name(input) + "::lexer_rules", meta_expr_list_new()),
+    );
+    meta_expr_list_push(options_args, meta_expr_var(options_name));
+    derive_output_add_public_method(
+        output,
+        meta_method(
+            "grammar_with",
+            options,
+            grammar_type,
+            lexer_static_call(input, "Grammar", "compile_with", options_args),
+        ),
+    );
+    let parameters = meta_param_list_new();
+    let source_name = derive_fresh_name(input, "lexer_source");
+    let extras_name = derive_fresh_name(input, "lexer_extras");
+    meta_param_list_push(parameters, source_name, meta_type_call_site("string"));
+    meta_param_list_push(parameters, extras_name, extras);
+    let args = derive_args(meta_expr_var(source_name));
+    meta_expr_list_push(args, meta_expr_var(extras_name));
+    let grammar = meta_expr_try(
+        meta_expr_call_site(derive_item_name(input) + "::grammar", meta_expr_list_new()),
+    );
+    derive_output_add_public_method(
+        output,
+        meta_method(
+            "lexer",
+            parameters,
+            lexer_result(input, lexer_type(input, "Lexer", extras, error)),
+            meta_expr_constructor(
+                "Result::Ok",
+                derive_args(meta_expr_method_call(grammar, "lexer", args)),
+            ),
+        ),
+    );
+    output
+}

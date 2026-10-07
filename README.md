@@ -5,7 +5,93 @@ the public types and functions are unchanged by the rename.
 
 A typed lexer toolkit written in GoML, inspired by [Rust Logos](https://logos.maciej.codes/). Rules compile to one Thompson NFA. Matching is anchored at the current cursor, selects the longest accepted prefix, then uses rule priority. The regex engine has no recursive backtracking. There is no native adapter or dependency on a host regex engine.
 
-This package uses a runtime `Grammar::compile` API. It does not implement Rust's derive macro or generate a specialized DFA. Compiled grammars can be reused across input strings and shared by independent lexers.
+This package provides `#[derive(lexer::Lexer)]` and the runtime `Grammar::compile`
+API. Both use the same bounded NFA engine. Derivation generates typed rule
+construction, not a specialized DFA. Compiled grammars can be reused across input
+strings and shared by independent lexers.
+
+## Deriving a lexer
+
+```goml
+use ecosystem::lexer;
+
+#[derive(lexer::Lexer, Debug, PartialEq)]
+#[skip(r"\s+")]
+enum Token {
+    #[token("let")]
+    Let,
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
+    Name(string),
+    #[token("=")]
+    #[token(":=")]
+    Equals,
+}
+
+fn tokenize(source: string) -> Result[lexer::Lexer[Token, (), string], lexer::CompileError] {
+    Token::lexer(source, ())
+}
+```
+
+Derivation requires a nonempty, non-generic enum. Every variant must declare at
+least one `token` (literal) or `regex` rule. Unit variants emit themselves; a
+single `string` payload receives the matched text. Other payloads require a
+callback. Multiple rules on one variant are allowed. Repeated enum-level `skip`
+attributes add regex rules which discard matches. Rules are generated in variant
+declaration order, then attribute order; skip rules follow in enum attribute
+order. These indexes appear in compile errors and runtime ambiguity errors.
+
+The derive adds four public inherent methods:
+
+| Method | Return value |
+| --- | --- |
+| `Token::lexer_rules()` | `Vec[Rule[Token, X, E]]`, for inspection of the list or composition with handwritten rules |
+| `Token::grammar()` | `Result[Grammar[Token, X, E], CompileError]` |
+| `Token::grammar_with(options)` | The same result with explicit compilation and execution budgets |
+| `Token::lexer(source, extras)` | `Result[Lexer[Token, X, E], CompileError]` |
+
+`X` defaults to `()` and `E` to `string`. Set either using enum-level
+`#[lexer(extras = State, error = Error)]`; values are type names or module-qualified
+type paths in the source file's scope. Use a type alias for a compound type.
+`Token::lexer` compiles a new grammar on each call. For repeated inputs, build
+`Token::grammar()` once and use its `lexer`, `lexer_at`, or `lexer_range` methods.
+
+Rules accept `callback = function_path`, `priority = 10`, `ignore_ascii_case`,
+and `dot_all`. Priority must be a nonnegative decimal integer fitting `isize`; a quoted
+decimal string such as `priority = "10"` is also accepted. Flags take no value. Normal and raw pattern strings are supported.
+Skip rules accept the same options except `callback`.
+
+A callback is a free function with signature `(Context[X]) -> Action[Token, E]`.
+It may emit a token, skip the match, or report an error, and has the normal
+`Context` access to extras, spans and checked `bump`:
+
+```goml
+use ecosystem::lexer;
+use std::num;
+
+#[derive(lexer::Lexer)]
+enum NumberToken {
+    #[regex("[0-9]+", callback = number)]
+    Number(isize),
+}
+
+fn number(context: lexer::Context[()]) -> lexer::Action[NumberToken, string] {
+    match num::parse_int_structured(context.slice()) {
+        Ok(value) => lexer::Action::Emit(NumberToken::Number(value)),
+        Err(error) => lexer::Action::Error(error.to_string()),
+    }
+}
+```
+
+Malformed attributes, unsupported enum shapes and missing rules are compile-time
+errors. Callback signatures are checked by the compiler. Regex syntax, nullable
+rules and automaton budgets are checked when constructing the grammar and return
+`CompileError`; equal-length/equal-priority overlaps remain runtime
+`LexError::Ambiguous` errors. Derivation does not change those semantics.
+Generated method names must not collide with user-defined methods.
+
+Run the complete example with `goml run --example derive`.
+
+## Constructing rules directly
 
 ```goml
 use ecosystem::lexer;
@@ -46,6 +132,9 @@ fn tokenize(source: string) -> Result[Vec[Token], string] {
 | API | Behavior |
 | --- | --- |
 | `Rule::token(text, value)` | Literal text returning a fixed token |
+| `Rule::regex_token(pattern, value)` | Regex returning a fixed token |
+| `Rule::literal_text(text, constructor)` | Literal passing matched text to a `(string) -> T` constructor |
+| `Rule::regex_text(pattern, constructor)` | Regex passing matched text to a `(string) -> T` constructor |
 | `Rule::literal(text, callback)` | Literal text with a typed callback |
 | `Rule::regex(pattern, callback)` | Regex with a typed callback |
 | `Rule::skip(pattern)` | Regex discarding its matches |
@@ -115,13 +204,13 @@ From the repository root:
 (cd ../verification && just ecosystem-test lexer)
 ```
 
-The external library tests cover maximal munch, automatic/explicit priorities, ambiguity, nullable loops, bounded repeats, Unicode classes/spans, error recovery, callbacks/bump, extras, modes, snapshots, limits, adversarial alternation, and independent concurrent lexers. The example and its independent downstream verification check the public generic API. Native example tests compare all 3,155 retained reference cases from independent `re` full-match evaluation of every candidate prefix; they include exhaustive short binary inputs and generated multi-rule, Unicode, skip, flag and priority cases. [Fixture provenance](examples/basic/tests/data/README.md) records the model and seed. Running the tests requires only GoML.
+The external library tests cover maximal munch, automatic/explicit priorities, ambiguity, nullable loops, bounded repeats, Unicode classes/spans, error recovery, callbacks/bump, extras, modes, snapshots, limits, adversarial alternation, and independent concurrent lexers. Derive tests cover generated rules, callbacks, extras/error types, options, escaped/raw strings, compile errors and runtime ambiguity, plus 30 rejected declarations with checked compiler diagnostics. The examples and their independent downstream verification check the public generic API and imported derive interface. Native example tests compare all 3,155 retained reference cases from independent `re` full-match evaluation of every candidate prefix; they include exhaustive short binary inputs and generated multi-rule, Unicode, skip, flag and priority cases. [Fixture provenance](examples/basic/tests/data/README.md) records the model and seed. Running the tests requires only GoML. For direct `goml test` invocations, put `goml` on `PATH` or set `GOML`/`GOML_VERIFY_DRIVER` to the compiler driver used for diagnostic fixtures.
 
 Reference design: [Logos token rules](https://logos.maciej.codes/attributes/token_and_regex.html), [disambiguation](https://logos.maciej.codes/token-disambiguation.html), [callbacks](https://logos.maciej.codes/callbacks.html), and [extras](https://logos.maciej.codes/extras.html).
 
 ## Development and examples
 
-Requires GoML 0.1.56 or newer. The `examples/basic/` example shares the root manifest; test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
+Requires GoML 0.1.57 or newer. The `examples/basic/` example shares the root manifest; test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
 
 ```sh
 goml run --example basic

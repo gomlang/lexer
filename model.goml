@@ -97,6 +97,18 @@ impl[T, X, E] Rule[T, X, E] {
         Rule::literal(text, |_| Action::Emit(value))
     }
 
+    pub fn regex_token(pattern: string, value: T) -> Rule[T, X, E] {
+        Rule::regex(pattern, |_| Action::Emit(value))
+    }
+
+    pub fn literal_text(text: string, constructor: (string) -> T) -> Rule[T, X, E] {
+        Rule::literal(text, |context| Action::Emit(constructor(context.slice())))
+    }
+
+    pub fn regex_text(pattern: string, constructor: (string) -> T) -> Rule[T, X, E] {
+        Rule::regex(pattern, |context| Action::Emit(constructor(context.slice())))
+    }
+
     pub fn literal(text: string, callback: (Context[X]) -> Action[T, E]) -> Rule[T, X, E] {
         Rule {
             pattern: Pattern::Literal(text),
