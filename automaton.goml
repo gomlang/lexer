@@ -1,4 +1,4 @@
-package logos;
+package lexer;
 
 enum State {
     Epsilon(Vec[isize]),

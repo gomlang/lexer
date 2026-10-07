@@ -1,6 +1,6 @@
 package main;
 
-use ecosystem::logos;
+use ecosystem::lexer;
 use std::env;
 use std::io;
 use std::json;
@@ -35,25 +35,25 @@ pub fn lex_case(value: json::Value) -> Result[json::Value, string] {
     let source = json::as_string(field(value, "source").ok_or("missing source")?).ok_or(
         "source must be a string",
     )?;
-    let rules: Vec[logos::Rule[isize, (), string]] = Vec::new();
+    let rules: Vec[lexer::Rule[isize, (), string]] = Vec::new();
     for index in 0..definitions.len() {
         let definition = definitions[index];
         let pattern = json::as_string(field(definition, "pattern").ok_or("missing pattern")?).ok_or(
             "pattern must be a string",
         )?;
         let skip = field(definition, "skip").and_then(|value| json::as_bool(value)).unwrap_or(false);
-        let callback = |_ctx: logos::Context[()]| if skip {
-            logos::Action::Skip
+        let callback = |_ctx: lexer::Context[()]| if skip {
+            lexer::Action::Skip
         } else {
-            logos::Action::Emit(index)
+            lexer::Action::Emit(index)
         };
         let literal = field(definition, "literal").and_then(|value| json::as_bool(value)).unwrap_or(
             false,
         );
         let mut rule = if literal {
-            logos::Rule::literal(pattern, callback)
+            lexer::Rule::literal(pattern, callback)
         } else {
-            logos::Rule::regex(pattern, callback)
+            lexer::Rule::regex(pattern, callback)
         };
         if let Some(priority) = field(definition, "priority").and_then(|value| integer(value)) {
             rule = rule.with_priority(priority);
@@ -66,7 +66,7 @@ pub fn lex_case(value: json::Value) -> Result[json::Value, string] {
         }
         rules.push(rule);
     }
-    let grammar = logos::Grammar::compile(rules).map_err(|error| error.to_string())?;
+    let grammar = lexer::Grammar::compile(rules).map_err(|error| error.to_string())?;
     let lexer = grammar.lexer(source, ());
     let results: Vec[json::Value] = Vec::new();
     while let Some(result) = lexer.next() {
@@ -113,16 +113,16 @@ fn main() -> () {
             process::exit(1);
         }
     } else {
-        let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
+        let rules: Vec[lexer::Rule[string, (), string]] = Vec::from_array(
             [
-                logos::Rule::token("let", "keyword"),
-                logos::Rule::regex("[a-z]+", |ctx| logos::Action::Emit("name:" + ctx.slice())),
-                logos::Rule::regex("[0-9]+", |ctx| logos::Action::Emit("number:" + ctx.slice())),
-                logos::Rule::token("=", "assign"),
-                logos::Rule::skip("\\s+"),
+                lexer::Rule::token("let", "keyword"),
+                lexer::Rule::regex("[a-z]+", |ctx| lexer::Action::Emit("name:" + ctx.slice())),
+                lexer::Rule::regex("[0-9]+", |ctx| lexer::Action::Emit("number:" + ctx.slice())),
+                lexer::Rule::token("=", "assign"),
+                lexer::Rule::skip("\\s+"),
             ],
         );
-        let grammar = testing::expect_ok(logos::Grammar::compile(rules), "compile consumer grammar");
+        let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "compile consumer grammar");
         let lexer = grammar.lexer("let answer = 42", ());
         let tokens: Vec[string] = Vec::new();
         for token in lexer {
@@ -131,6 +131,6 @@ fn main() -> () {
         testing::assert(
             tokens == Vec::from_array(["keyword", "name:answer", "assign", "number:42"]),
         );
-        println("logos consumer: ok");
+        println("lexer consumer: ok");
     }
 }

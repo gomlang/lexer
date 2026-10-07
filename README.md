@@ -1,11 +1,14 @@
-# logos
+# lexer
+
+Formerly `logos`. Use `ecosystem::lexer` for dependency declarations and imports;
+the public types and functions are unchanged by the rename.
 
 A typed lexer toolkit written in GoML, inspired by [Rust Logos](https://logos.maciej.codes/). Rules compile to one Thompson NFA. Matching is anchored at the current cursor, selects the longest accepted prefix, then uses rule priority. The regex engine has no recursive backtracking. There is no native adapter or dependency on a host regex engine.
 
 This package uses a runtime `Grammar::compile` API. It does not implement Rust's derive macro or generate a specialized DFA. Compiled grammars can be reused across input strings and shared by independent lexers.
 
 ```goml
-use ecosystem::logos;
+use ecosystem::lexer;
 
 enum Token {
     Let,
@@ -15,18 +18,18 @@ enum Token {
 }
 
 fn tokenize(source: string) -> Result[Vec[Token], string] {
-    let rules: Vec[logos::Rule[Token, (), string]] = Vec::from_array([
-        logos::Rule::token("let", Token::Let),
-        logos::Rule::regex("[a-zA-Z_][a-zA-Z0-9_]*", |ctx| {
-            logos::Action::Emit(Token::Name(ctx.slice()))
+    let rules: Vec[lexer::Rule[Token, (), string]] = Vec::from_array([
+        lexer::Rule::token("let", Token::Let),
+        lexer::Rule::regex("[a-zA-Z_][a-zA-Z0-9_]*", |ctx| {
+            lexer::Action::Emit(Token::Name(ctx.slice()))
         }),
-        logos::Rule::regex("[0-9]+", |ctx| {
-            logos::Action::Emit(Token::Number(ctx.slice()))
+        lexer::Rule::regex("[0-9]+", |ctx| {
+            lexer::Action::Emit(Token::Number(ctx.slice()))
         }),
-        logos::Rule::token("=", Token::Equals),
-        logos::Rule::skip("\\s+"),
+        lexer::Rule::token("=", Token::Equals),
+        lexer::Rule::skip("\\s+"),
     ]);
-    let grammar = logos::Grammar::compile(rules).map_err(|error| error.to_string())?;
+    let grammar = lexer::Grammar::compile(rules).map_err(|error| error.to_string())?;
     let lexer = grammar.lexer(source, ());
     let tokens: Vec[Token] = Vec::new();
     for result in lexer {
@@ -109,7 +112,7 @@ Simulation costs approximately the inspected characters times the active NFA sta
 From the repository root:
 
 ```sh
-(cd ../verification && just ecosystem-test logos)
+(cd ../verification && just ecosystem-test lexer)
 ```
 
 The external library tests cover maximal munch, automatic/explicit priorities, ambiguity, nullable loops, bounded repeats, Unicode classes/spans, error recovery, callbacks/bump, extras, modes, snapshots, limits, adversarial alternation, and independent concurrent lexers. The example and its independent downstream verification check the public generic API. Native example tests compare all 3,155 retained reference cases from independent `re` full-match evaluation of every candidate prefix; they include exhaustive short binary inputs and generated multi-rule, Unicode, skip, flag and priority cases. [Fixture provenance](examples/basic/tests/data/README.md) records the model and seed. Running the tests requires only GoML.
@@ -126,4 +129,4 @@ goml test
 goml verify --timeout 300s
 ```
 
-`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test logos)` also retains the library-specific smoke and compatibility checks.
+`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test lexer)` also retains the library-specific smoke and compatibility checks.

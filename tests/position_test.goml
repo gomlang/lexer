@@ -1,78 +1,78 @@
 package tests;
 
-use ecosystem::logos;
+use ecosystem::lexer;
 use std::testing;
 use std::task;
 
 #[test]
 fn cached_positions_follow_skips_bumps_errors_forks_and_modes() -> () {
-    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
+    let rules: Vec[lexer::Rule[string, (), string]] = Vec::from_array(
         [
-            logos::Rule::regex(
+            lexer::Rule::regex(
                 "[a-z]+",
                 |ctx| {
                     let before = ctx.position();
                     testing::assert_eq(ctx.position(), before);
-                    logos::Action::Emit(ctx.slice())
+                    lexer::Action::Emit(ctx.slice())
                 },
             ),
-            logos::Rule::literal(
+            lexer::Rule::literal(
                 "#",
                 |ctx| {
                     testing::expect_ok(ctx.bump(5), "bump unicode and newline");
-                    logos::Action::Error("comment")
+                    lexer::Action::Error("comment")
                 },
             ),
-            logos::Rule::skip("\\s+"),
+            lexer::Rule::skip("\\s+"),
         ],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let lexer = grammar.lexer("é\nx #😀\n y\nz", ());
     testing::assert_err(testing::expect_some(lexer.next(), "unexpected"));
-    testing::assert_eq(lexer.position(), logos::Position { line: 1, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 1, column: 1 });
     testing::assert_eq(testing::expect_ok(testing::expect_some(lexer.next(), "x"), "token"), "x");
-    testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 2, column: 1 });
     let fork = lexer.fork();
     testing::assert_err(testing::expect_some(lexer.next(), "bumped callback error"));
-    testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 3 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 2, column: 3 });
     let morphed = lexer.morph(grammar);
     testing::assert_eq(testing::expect_ok(testing::expect_some(morphed.next(), "y"), "token"), "y");
-    testing::assert_eq(lexer.position(), logos::Position { line: 3, column: 2 });
-    testing::assert_eq(fork.position(), logos::Position { line: 2, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 3, column: 2 });
+    testing::assert_eq(fork.position(), lexer::Position { line: 2, column: 1 });
     testing::assert_err(testing::expect_some(fork.next(), "fork error"));
-    testing::assert_eq(fork.position(), logos::Position { line: 2, column: 3 });
+    testing::assert_eq(fork.position(), lexer::Position { line: 2, column: 3 });
     let _ = lexer.next();
-    testing::assert_eq(lexer.position(), logos::Position { line: 4, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 4, column: 1 });
     testing::assert_none(lexer.next());
-    testing::assert_eq(lexer.position(), logos::Position { line: 4, column: 2 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 4, column: 2 });
     testing::assert_none(lexer.next());
     let at = testing::expect_ok(grammar.lexer_at("é\nx", 3, ()), "offset");
-    testing::assert_eq(at.position(), logos::Position { line: 2, column: 1 });
+    testing::assert_eq(at.position(), lexer::Position { line: 2, column: 1 });
 }
 
 #[test]
 fn position_queries_scale_over_many_unicode_lines() -> () {
-    let rules: Vec[logos::Rule[(), (), string]] = Vec::from_array(
-        [logos::Rule::regex(".", |_| logos::Action::Emit(())), logos::Rule::skip("\n")],
+    let rules: Vec[lexer::Rule[(), (), string]] = Vec::from_array(
+        [lexer::Rule::regex(".", |_| lexer::Action::Emit(())), lexer::Rule::skip("\n")],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let lexer = grammar.lexer("é😀\n".repeat(10000), ());
     for line in 1..10001 {
         for column in 1..3 {
             testing::assert_ok(testing::expect_some(lexer.next(), "token"));
-            testing::assert_eq(lexer.position(), logos::Position { line, column });
+            testing::assert_eq(lexer.position(), lexer::Position { line, column });
         }
     }
     testing::assert_none(lexer.next());
-    testing::assert_eq(lexer.position(), logos::Position { line: 10001, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 10001, column: 1 });
 }
 
 #[test]
 fn independently_forked_position_caches_allow_parallel_reads() -> () {
-    let rules: Vec[logos::Rule[(), (), string]] = Vec::from_array(
-        [logos::Rule::regex(".", |_| logos::Action::Emit(())), logos::Rule::skip("\n")],
+    let rules: Vec[lexer::Rule[(), (), string]] = Vec::from_array(
+        [lexer::Rule::regex(".", |_| lexer::Action::Emit(())), lexer::Rule::skip("\n")],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let original = grammar.lexer("😀\né", ());
     let _ = original.next();
     let _ = original.position();
@@ -84,7 +84,7 @@ fn independently_forked_position_caches_allow_parallel_reads() -> () {
                 scope.spawn(
                     |_| {
                         let _ = fork.next();
-                        results.send(fork.position() == logos::Position { line: 2, column: 1 });
+                        results.send(fork.position() == lexer::Position { line: 2, column: 1 });
                     },
                 );
             }
@@ -93,5 +93,5 @@ fn independently_forked_position_caches_allow_parallel_reads() -> () {
             }
         },
     );
-    testing::assert_eq(original.position(), logos::Position { line: 1, column: 1 });
+    testing::assert_eq(original.position(), lexer::Position { line: 1, column: 1 });
 }

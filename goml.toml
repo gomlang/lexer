@@ -1,5 +1,5 @@
 [module]
-path = "ecosystem::logos"
+path = "ecosystem::lexer"
 
 [dev-dependencies]
 "ecosystem::verification" = "0.1.0"

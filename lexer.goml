@@ -1,4 +1,4 @@
-package logos;
+package lexer;
 
 pub struct Lexer[T, X, E] {
     grammar: Grammar[T, X, E],

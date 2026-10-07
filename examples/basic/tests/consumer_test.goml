@@ -1,34 +1,34 @@
 package tests;
 
-use ecosystem::logos;
+use ecosystem::lexer;
 use std::testing;
 
 #[test]
 fn published_generic_callback_and_iterator_surface() -> () {
-    let rules: Vec[logos::Rule[(string, logos::Position), isize, string]] = Vec::from_array(
+    let rules: Vec[lexer::Rule[(string, lexer::Position), isize, string]] = Vec::from_array(
         [
-            logos::Rule::regex(
+            lexer::Rule::regex(
                 "\\p{L}+",
                 |ctx| {
                     ctx.set_extras(ctx.extras() + 1);
-                    logos::Action::Emit((ctx.slice(), ctx.position()))
+                    lexer::Action::Emit((ctx.slice(), ctx.position()))
                 },
             ),
-            logos::Rule::skip("\\s+"),
+            lexer::Rule::skip("\\s+"),
         ],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "compile published grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "compile published grammar");
     let lexer = grammar.lexer("hello\n世界", 0);
     let tokens = lexer.spanned();
     let first = testing::expect_some(tokens.next(), "first token");
     let value = testing::expect_ok(first.0, "first value");
     testing::assert_eq(value.0, "hello");
-    testing::assert_eq(value.1, logos::Position { line: 1, column: 1 });
+    testing::assert_eq(value.1, lexer::Position { line: 1, column: 1 });
     let second = testing::expect_some(tokens.next(), "second token");
-    testing::assert_eq(second.1, logos::Span { start: 6, end: 12 });
+    testing::assert_eq(second.1, lexer::Span { start: 6, end: 12 });
     testing::assert_eq(
         testing::expect_ok(second.0, "second value").1,
-        logos::Position { line: 2, column: 1 },
+        lexer::Position { line: 2, column: 1 },
     );
     testing::assert_none(tokens.next());
     testing::assert_eq(lexer.extras(), 2);
@@ -36,29 +36,29 @@ fn published_generic_callback_and_iterator_surface() -> () {
 
 #[test]
 fn downstream_position_queries_are_stable_across_unicode_tokens() -> () {
-    let rules: Vec[logos::Rule[(), (), string]] = Vec::from_array(
-        [logos::Rule::regex(".", |_| logos::Action::Emit(())), logos::Rule::skip("\n")],
+    let rules: Vec[lexer::Rule[(), (), string]] = Vec::from_array(
+        [lexer::Rule::regex(".", |_| lexer::Action::Emit(())), lexer::Rule::skip("\n")],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let lexer = grammar.lexer("😀\né", ());
     let _ = lexer.next();
     let fork = lexer.fork();
     let _ = lexer.next();
-    testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 1 });
-    testing::assert_eq(fork.position(), logos::Position { line: 1, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 2, column: 1 });
+    testing::assert_eq(fork.position(), lexer::Position { line: 1, column: 1 });
 }
 
 #[test]
 fn downstream_embedded_range_keeps_source_coordinates() -> () {
-    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
-        [logos::Rule::regex("[a-z]+", |ctx| logos::Action::Emit(ctx.slice()))],
+    let rules: Vec[lexer::Rule[string, (), string]] = Vec::from_array(
+        [lexer::Rule::regex("[a-z]+", |ctx| lexer::Action::Emit(ctx.slice()))],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let lexer = testing::expect_ok(grammar.lexer_range("head\ncodeTAIL", 5, 9, ()), "range");
     testing::assert_eq(
         testing::expect_ok(testing::expect_some(lexer.next(), "token"), "token"),
         "code",
     );
-    testing::assert_eq(lexer.span(), logos::Span { start: 5, end: 9 });
+    testing::assert_eq(lexer.span(), lexer::Span { start: 5, end: 9 });
     testing::assert_none(lexer.next());
 }

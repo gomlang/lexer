@@ -1,18 +1,18 @@
 package tests;
 
-use ecosystem::logos;
+use ecosystem::lexer;
 use std::testing;
 
 #[test]
 fn range_lexers_keep_absolute_spans_and_stop_before_suffixes() -> () {
-    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
-        [logos::Rule::regex("[a-z]+", |ctx| logos::Action::Emit(ctx.slice()))],
+    let rules: Vec[lexer::Rule[string, (), string]] = Vec::from_array(
+        [lexer::Rule::regex("[a-z]+", |ctx| lexer::Action::Emit(ctx.slice()))],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let source = "😀\nabcdTAIL";
     let lexer = testing::expect_ok(grammar.lexer_range(source, 5, 9, ()), "range");
     testing::assert_eq(lexer.source(), source);
-    testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 1 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 2, column: 1 });
     testing::assert_eq(lexer.remainder(), "abcd");
     let fork = lexer.fork();
     let morphed = lexer.morph(grammar);
@@ -20,12 +20,12 @@ fn range_lexers_keep_absolute_spans_and_stop_before_suffixes() -> () {
         testing::expect_ok(testing::expect_some(morphed.next(), "token"), "token"),
         "abcd",
     );
-    testing::assert_eq(lexer.span(), logos::Span { start: 5, end: 9 });
+    testing::assert_eq(lexer.span(), lexer::Span { start: 5, end: 9 });
     testing::assert_err(lexer.bump(1));
     testing::assert_eq(lexer.remainder(), "");
     testing::assert_none(morphed.next());
-    testing::assert_eq(lexer.span(), logos::Span { start: 9, end: 9 });
-    testing::assert_eq(lexer.position(), logos::Position { line: 2, column: 5 });
+    testing::assert_eq(lexer.span(), lexer::Span { start: 9, end: 9 });
+    testing::assert_eq(lexer.position(), lexer::Position { line: 2, column: 5 });
     testing::assert_eq(
         testing::expect_ok(testing::expect_some(fork.next(), "fork"), "token"),
         "abcd",
@@ -39,21 +39,21 @@ fn range_lexers_keep_absolute_spans_and_stop_before_suffixes() -> () {
 
 #[test]
 fn callbacks_and_failed_prefix_recovery_cannot_escape_the_range() -> () {
-    let rules: Vec[logos::Rule[string, (), string]] = Vec::from_array(
+    let rules: Vec[lexer::Rule[string, (), string]] = Vec::from_array(
         [
-            logos::Rule::literal(
+            lexer::Rule::literal(
                 "#",
                 |ctx| {
                     testing::assert_err(ctx.bump(5));
                     testing::expect_ok(ctx.bump(4), "emoji bump");
                     testing::assert_eq(ctx.remainder(), "");
-                    logos::Action::Emit(ctx.slice())
+                    lexer::Action::Emit(ctx.slice())
                 },
             ),
-            logos::Rule::token("abcdef", "long"),
+            lexer::Rule::token("abcdef", "long"),
         ],
     );
-    let grammar = testing::expect_ok(logos::Grammar::compile(rules), "grammar");
+    let grammar = testing::expect_ok(lexer::Grammar::compile(rules), "grammar");
     let lexer = testing::expect_ok(grammar.lexer_range("x#😀suffix", 1, 6, ()), "bump range");
     testing::assert_eq(
         testing::expect_ok(testing::expect_some(lexer.next(), "token"), "token"),
@@ -62,6 +62,6 @@ fn callbacks_and_failed_prefix_recovery_cannot_escape_the_range() -> () {
     testing::assert_none(lexer.next());
     let lexer = testing::expect_ok(grammar.lexer_range("abcdef", 0, 3, ()), "truncated token");
     testing::assert_err(testing::expect_some(lexer.next(), "unexpected"));
-    testing::assert_eq(lexer.span(), logos::Span { start: 0, end: 3 });
+    testing::assert_eq(lexer.span(), lexer::Span { start: 0, end: 3 });
     testing::assert_none(lexer.next());
 }

@@ -17,5 +17,5 @@ jobs:
   verify:
     uses: gomlang/verification/.github/workflows/ecosystem-ci.yml@7a3d792e5e96f599168db3dc78cc87ef093a7198
     with:
-      module: logos
+      module: lexer
       verification-ref: 7a3d792e5e96f599168db3dc78cc87ef093a7198
